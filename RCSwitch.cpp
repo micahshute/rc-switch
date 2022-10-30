@@ -80,17 +80,18 @@ static const VAR_ISR_ATTR RCSwitch::Protocol proto[] = {
 static const RCSwitch::Protocol PROGMEM proto[] = {
 #endif
   { 350, {  1, 31 }, {  1,  3 }, {  3,  1 }, false },    // protocol 1
-  { 650, {  1, 10 }, {  1,  2 }, {  2,  1 }, false },    // protocol 2
-  { 100, { 30, 71 }, {  4, 11 }, {  9,  6 }, false },    // protocol 3
-  { 380, {  1,  6 }, {  1,  3 }, {  3,  1 }, false },    // protocol 4
-  { 500, {  6, 14 }, {  1,  2 }, {  2,  1 }, false },    // protocol 5
-  { 450, { 23,  1 }, {  1,  2 }, {  2,  1 }, true },     // protocol 6 (HT6P20B)
-  { 150, {  2, 62 }, {  1,  6 }, {  6,  1 }, false },    // protocol 7 (HS2303-PT, i. e. used in AUKEY Remote)
-  { 200, {  3, 130}, {  7, 16 }, {  3,  16}, false},     // protocol 8 Conrad RS-200 RX
-  { 200, { 130, 7 }, {  16, 7 }, { 16,  3 }, true},      // protocol 9 Conrad RS-200 TX
-  { 365, { 18,  1 }, {  3,  1 }, {  1,  3 }, true },     // protocol 10 (1ByOne Doorbell)
-  { 270, { 36,  1 }, {  1,  2 }, {  2,  1 }, true },     // protocol 11 (HT12E)
-  { 320, { 36,  1 }, {  1,  2 }, {  2,  1 }, true }      // protocol 12 (SM5212)
+  { 400, {  1, 10 }, {  2,  1 }, {  1,  2 }, false },    // protocol 2 (HCS301)
+  { 650, {  1, 10 }, {  1,  2 }, {  2,  1 }, false },    // protocol 3
+  { 100, { 30, 71 }, {  4, 11 }, {  9,  6 }, false },    // protocol 4
+  { 380, {  1,  6 }, {  1,  3 }, {  3,  1 }, false },    // protocol 5
+  { 500, {  6, 14 }, {  1,  2 }, {  2,  1 }, false },    // protocol 6
+  { 450, { 23,  1 }, {  1,  2 }, {  2,  1 }, true  },    // protocol 7 (HT6P20B)
+  { 150, {  2, 62 }, {  1,  6 }, {  6,  1 }, false },    // protocol 8 (HS2303-PT, i. e. used in AUKEY Remote)
+  { 200, {  3, 130}, {  7, 16 }, {  3,  16}, false },    // protocol 9 Conrad RS-200 RX
+  { 200, { 130, 7 }, {  16, 7 }, { 16,  3 }, true  },    // protocol 10 Conrad RS-200 TX
+  { 365, { 18,  1 }, {  3,  1 }, {  1,  3 }, true  },    // protocol 11 (1ByOne Doorbell)
+  { 270, { 36,  1 }, {  1,  2 }, {  2,  1 }, true  },    // protocol 12 (HT12E)
+  { 320, { 36,  1 }, {  1,  2 }, {  2,  1 }, true  }     // protocol 13 (SM5212)
 };
 
 enum {
@@ -103,7 +104,7 @@ volatile unsigned int RCSwitch::nReceivedBitlength = 0;
 volatile unsigned int RCSwitch::nReceivedDelay = 0;
 volatile unsigned int RCSwitch::nReceivedProtocol = 0;
 int RCSwitch::nReceiveTolerance = 60;
-const unsigned int VAR_ISR_ATTR RCSwitch::nSeparationLimit = 4300;
+const unsigned int VAR_ISR_ATTR RCSwitch::nSeparationLimit = 3800;
 // separationLimit: minimum microseconds between received codes, closer codes are ignored.
 // according to discussion on issue #14 it might be more suitable to set the separation
 // limit to the same time as the 'low' part of the sync signal for the current protocol.
@@ -702,6 +703,7 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
  
   // detect overflow
   if (changeCount >= RCSWITCH_MAX_CHANGES) {
+    receiveProtocol(2, changeCount);
     changeCount = 0;
     repeatCount = 0;
   }
