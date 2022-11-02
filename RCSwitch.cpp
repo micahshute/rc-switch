@@ -79,19 +79,19 @@ static const VAR_ISR_ATTR RCSwitch::Protocol proto[] = {
 #else
 static const RCSwitch::Protocol PROGMEM proto[] = {
 #endif
-  { 350, {  1, 31 }, {  1,  3 }, {  3,  1 }, false },    // protocol 1
-  { 400, {  1, 10 }, {  2,  1 }, {  1,  2 }, false },    // protocol 2 (HCS301)
-  { 650, {  1, 10 }, {  1,  2 }, {  2,  1 }, false },    // protocol 3
-  { 100, { 30, 71 }, {  4, 11 }, {  9,  6 }, false },    // protocol 4
-  { 380, {  1,  6 }, {  1,  3 }, {  3,  1 }, false },    // protocol 5
-  { 500, {  6, 14 }, {  1,  2 }, {  2,  1 }, false },    // protocol 6
-  { 450, { 23,  1 }, {  1,  2 }, {  2,  1 }, true  },    // protocol 7 (HT6P20B)
-  { 150, {  2, 62 }, {  1,  6 }, {  6,  1 }, false },    // protocol 8 (HS2303-PT, i. e. used in AUKEY Remote)
-  { 200, {  3, 130}, {  7, 16 }, {  3,  16}, false },    // protocol 9 Conrad RS-200 RX
-  { 200, { 130, 7 }, {  16, 7 }, { 16,  3 }, true  },    // protocol 10 Conrad RS-200 TX
-  { 365, { 18,  1 }, {  3,  1 }, {  1,  3 }, true  },    // protocol 11 (1ByOne Doorbell)
-  { 270, { 36,  1 }, {  1,  2 }, {  2,  1 }, true  },    // protocol 12 (HT12E)
-  { 320, { 36,  1 }, {  1,  2 }, {  2,  1 }, true  }     // protocol 13 (SM5212)
+  { 350, {  1, 31 }, {  1,  3 }, {  3,  1 }, false, false, { 0, 0 } },    // protocol 1
+  { 650, {  1, 10 }, {  1,  2 }, {  2,  1 }, false, false, { 0, 0 } },    // protocol 2
+  { 100, { 30, 71 }, {  4, 11 }, {  9,  6 }, false, false, { 0, 0 } },    // protocol 3
+  { 380, {  1,  6 }, {  1,  3 }, {  3,  1 }, false, false, { 0, 0 } },    // protocol 4
+  { 500, {  6, 14 }, {  1,  2 }, {  2,  1 }, false, false, { 0, 0 } },    // protocol 5
+  { 450, { 23,  1 }, {  1,  2 }, {  2,  1 }, true, false, { 0, 0 } },    // protocol 6 (HT6P20B)
+  { 150, {  2, 62 }, {  1,  6 }, {  6,  1 }, false, false, { 0, 0 } },    // protocol 7 (HS2303-PT, i. e. used in AUKEY Remote)
+  { 200, {  3, 130}, {  7, 16 }, {  3,  16}, false, false, { 0, 0 } },    // protocol 8 Conrad RS-200 RX
+  { 200, { 130, 7 }, {  16, 7 }, { 16,  3 }, true, false, { 0, 0 } },    // protocol 9 Conrad RS-200 TX
+  { 365, { 18,  1 }, {  3,  1 }, {  1,  3 }, true, false, { 0, 0 } },    // protocol 10 (1ByOne Doorbell)
+  { 270, { 36,  1 }, {  1,  2 }, {  2,  1 }, true, false, { 0, 0 } },    // protocol 11 (HT12E)
+  { 320, { 36,  1 }, {  1,  2 }, {  2,  1 }, true, false, { 0, 0 } },    // protocol 12 (SM5212)
+  { 400, {  1, 10 }, {  2,  1 }, {  1,  2 }, false, true, { 0, 39 } }     // protocol 13 (HCS301)
 };
 
 enum {
@@ -103,6 +103,7 @@ volatile unsigned long RCSwitch::nReceivedValue = 0;
 volatile unsigned int RCSwitch::nReceivedBitlength = 0;
 volatile unsigned int RCSwitch::nReceivedDelay = 0;
 volatile unsigned int RCSwitch::nReceivedProtocol = 0;
+volatile int RCSwitch::receivingProtocol = -1;
 int RCSwitch::nReceiveTolerance = 60;
 const unsigned int VAR_ISR_ATTR RCSwitch::nSeparationLimit = 3800;
 // separationLimit: minimum microseconds between received codes, closer codes are ignored.
@@ -607,6 +608,19 @@ static inline unsigned int diff(int A, int B) {
   return abs(A - B);
 }
 
+unsigned int RECEIVE_ATTR RCSwitch::getProtocolHandshakePulseLength(unsigned int protocolIndex){
+#if defined(ESP8266) || defined(ESP32)
+    const Protocol &pro = proto[p-1];
+#else
+    Protocol pro;
+    memcpy_P(&pro, &proto[protocolIndex-1], sizeof(Protocol));
+#endif
+  uint8_t higherSyncFactor = pro.syncFactor.low > pro.syncFactor.high ? pro.syncFactor.low : pro.syncFactor.high;
+  return pro.pulseLength * ((unsigned int) higherSyncFactor);
+}
+
+
+
 /**
  *
  */
@@ -620,8 +634,9 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
 
     unsigned long code = 0;
     //Assuming the longer pulse length is the pulse captured in timings[0]
-    const unsigned int syncLengthInPulses =  ((pro.syncFactor.low) > (pro.syncFactor.high)) ? (pro.syncFactor.low) : (pro.syncFactor.high);
-    const unsigned int delay = RCSwitch::timings[0] / syncLengthInPulses;
+    // const unsigned int syncLengthInPulses =  ((pro.syncFactor.low) > (pro.syncFactor.high)) ? (pro.syncFactor.low) : (pro.syncFactor.high);
+    // const unsigned int delay = RCSwitch::timings[0] / syncLengthInPulses;
+    const unsigned int delay = pro.pulseLength;
     const unsigned int delayTolerance = delay * RCSwitch::nReceiveTolerance / 100;
     
     /* For protocols that start low, the sync period looks like
@@ -654,6 +669,24 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
             code |= 1;
         } else {
             // Failed
+            // Serial.print("BAD SIGNALL");
+            // Serial.print(" AT CHANGE ");
+            // Serial.print(i);
+            // Serial.print(" DURATIONS[i]: ");
+            // Serial.print(RCSwitch::timings[i]);
+            // Serial.print(" AND [i+1] ");
+            // Serial.print(RCSwitch::timings[i+1]);
+            // Serial.print(" WITH DELAY ");
+            // Serial.print(delay);
+            // Serial.print(" AND DELAY TOLERANCE: ");
+            // Serial.print(delayTolerance);
+            // Serial.print(" FIRST 3 SIGS: ");
+            // Serial.print(RCSwitch::timings[0]);
+            // Serial.print(" ; ");
+            // Serial.print(RCSwitch::timings[1]);
+            // Serial.print(" ; ");
+            // Serial.println(RCSwitch::timings[2]);
+
             return false;
         }
     }
@@ -669,8 +702,7 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
     return false;
 }
 
-void RECEIVE_ATTR RCSwitch::handleInterrupt() {
-
+void RECEIVE_ATTR RCSwitch::handleGenericReceive() {
   static unsigned int changeCount = 0;
   static unsigned long lastTime = 0;
   static unsigned int repeatCount = 0;
@@ -681,7 +713,8 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
   if (duration > RCSwitch::nSeparationLimit) {
     // A long stretch without signal level change occurred. This could
     // be the gap between two transmission.
-    if ((repeatCount==0) || (diff(duration, RCSwitch::timings[0]) < 200)) {
+
+    if ((repeatCount==0) ||  diff(duration, RCSwitch::timings[0]) < 200){
       // This long signal is close in length to the long signal which
       // started the previously recorded timings; this suggests that
       // it may indeed by a a gap between two transmissions (we assume
@@ -689,10 +722,12 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
       // with roughly the same gap between them).
       repeatCount++;
       if (repeatCount == 2) {
-        for(unsigned int i = 1; i <= numProto; i++) {
-          if (receiveProtocol(i, changeCount)) {
-            // receive succeeded for protocol i
-            break;
+        if(RCSwitch::receivingProtocol == -1){
+          for(unsigned int i = 1; i <= numProto; i++) {
+            if (receiveProtocol(i, changeCount)) {
+              // receive succeeded for protocol i
+              break;
+            }
           }
         }
         repeatCount = 0;
@@ -702,13 +737,130 @@ void RECEIVE_ATTR RCSwitch::handleInterrupt() {
   }
  
   // detect overflow
-  if (changeCount >= RCSWITCH_MAX_CHANGES) {
-    receiveProtocol(2, changeCount);
+  if (changeCount >= 131){//RCSWITCH_MAX_CHANGES) {
+    receiveProtocol(13, changeCount);
+    // Serial.print('\n');
+    // Serial.print("GOT EVERYTHING: ");
+    // Serial.println(duration);
     changeCount = 0;
     repeatCount = 0;
   }
 
   RCSwitch::timings[changeCount++] = duration;
   lastTime = time;  
+}
+
+void RECEIVE_ATTR RCSwitch::handleProtocolReceive(){
+#if defined(ESP8266) || defined(ESP32)
+    const Protocol &pro = proto[p-1];
+#else
+    Protocol pro;
+    memcpy_P(&pro, &proto[RCSwitch::receivingProtocol-1], sizeof(Protocol));
+#endif
+  uint8_t higherSyncFactor = pro.syncFactor.low > pro.syncFactor.high ? pro.syncFactor.low : pro.syncFactor.high;
+  unsigned int protocolHandshakeLength = pro.pulseLength * ((unsigned int) higherSyncFactor);
+  static unsigned int changeCount = 0;
+  static unsigned long lastTime = 0;
+  static unsigned int repeatCount = 0;
+  const long time = micros();
+  const unsigned int duration = time - lastTime;
+  unsigned int toleranceFactor = 25;
+  unsigned int handshakeTolerance = protocolHandshakeLength * ((double)toleranceFactor / 100);
+
+  bool signalDidComplete = false;
+  bool didReceiveHandshake = (diff(duration, protocolHandshakeLength) < handshakeTolerance); 
+
+  if(pro.hasCompleteCondition){
+    bool hasTwoSignals = pro.completeCondition.high != 0 && pro.completeCondition.low != 0;
+    if(hasTwoSignals){
+      // TODO
+    }else{
+      unsigned int completeConditionPulseLength = pro.completeCondition.high ? pro.completeCondition.high : pro.completeCondition.low;
+      unsigned int completeConditionLength = completeConditionPulseLength * pro.pulseLength;
+      unsigned int completedSignalTolerance = completeConditionLength * ((double)toleranceFactor / 100);
+      signalDidComplete = (diff(duration, completeConditionLength) < completedSignalTolerance) && (diff(RCSwitch::timings[0], protocolHandshakeLength) < handshakeTolerance);
+      if(signalDidComplete){
+        // Serial.print("DURATION: ");
+        // Serial.print(duration);
+        // Serial.print(" COMPLETE CONITION REQT: ");
+        // Serial.print(completeConditionLength);
+        // Serial.print(" TOLERANCE: ");
+        // Serial.println(completedSignalTolerance);
+      }
+    }
+  }
+
+  // if(duration > 6000){
+  //   Serial.print(" LONG SIG: ");
+  //   Serial.print(duration);
+  //   unsigned int completeConditionPulseLength = pro.completeCondition.high ? pro.completeCondition.high : pro.completeCondition.low;
+  //   unsigned int completeConditionLength = completeConditionPulseLength * pro.pulseLength;
+  //   unsigned int completedSignalTolerance = completeConditionLength * ((double)toleranceFactor / 100);
+  //   // Serial.print(" COMPLETE CONITION REQT: ");
+  //   // Serial.print(completeConditionLength);
+  //   // Serial.print(" TOLERANCE: ");
+  //   // Serial.println(completedSignalTolerance);
+  // }
+
+  if (didReceiveHandshake || signalDidComplete) {
+
+    // Serial.print("DURATION: ");
+    // Serial.print(duration);
+    // Serial.print(" HANDSHAKE? ");
+    // Serial.print(didReceiveHandshake);
+    // Serial.print(" COMPLETED? ");
+    // Serial.print(signalDidComplete);
+    // Serial.print(" CHANGECOUNT: ");
+    // Serial.println(changeCount);
+
+
+      // Serial.print("Duration: ");
+      // Serial.print(duration);
+      // Serial.print(" Repeat count: ");
+      // Serial.print(repeatCount);
+      // Serial.print(" DIFF: ");
+      // Serial.print(diff(duration, getProtocolHandshakePulseLength(RCSwitch::receivingProtocol)) );
+      // Serial.print(" WILL INCREMENT REPEAT: ");
+      // Serial.println(didRepeatCondition);
+
+    if(didReceiveHandshake){
+      repeatCount++;
+      // Serial.print("NEW REPEAT COUNT ");
+      // Serial.println(repeatCount);
+    }
+
+    // Serial.print("REPEAT COUNT FINAL: ");
+    // Serial.print(repeatCount);
+    // Serial.print(" CHANGE COUNT ");
+    // Serial.println(changeCount);
+    // Serial.println("--------------");
+    if (repeatCount == 2 || signalDidComplete) {
+      // Serial.print("Starting check with: ");
+      // Serial.print(timings[0]);
+      // Serial.print(" , ");
+      // Serial.print(timings[1]);
+      // Serial.print(" , ");
+      // Serial.println(timings[2]);
+      receiveProtocol(RCSwitch::receivingProtocol, changeCount);
+      repeatCount = 0;
+    }
+    changeCount = 0;
+  }
+ 
+  // detect overflow
+  if (changeCount >= RCSWITCH_MAX_CHANGES) {
+    changeCount = 0;
+    repeatCount = 0;
+  }
+  RCSwitch::timings[changeCount++] = duration;
+  lastTime = time;  
+}
+
+void RECEIVE_ATTR RCSwitch::handleInterrupt() {
+  if(RCSwitch::receivingProtocol == -1){
+    handleGenericReceive();
+  }else{
+    handleProtocolReceive();
+  }
 }
 #endif

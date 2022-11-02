@@ -58,7 +58,8 @@
 
 // Number of maximum high/Low changes per packet.
 // We can handle up to (unsigned long) => 32 bit * 2 H/L changes per bit + 2 for sync
-#define RCSWITCH_MAX_CHANGES 67
+// #define RCSWITCH_MAX_CHANGES 67
+ #define RCSWITCH_MAX_CHANGES 150
 
 class RCSwitch {
 
@@ -124,6 +125,9 @@ class RCSwitch {
         HighLow syncFactor;
         HighLow zero;
         HighLow one;
+        bool invertedSignal;
+        bool hasCompleteCondition;
+        HighLow completeCondition;
 
         /**
          * If true, interchange high and low logic levels in all transmissions.
@@ -141,12 +145,12 @@ class RCSwitch {
          * FOO.high*pulseLength microseconds, followed by a high signal lasting
          * FOO.low*pulseLength microseconds.
          */
-        bool invertedSignal;
     };
 
     void setProtocol(Protocol protocol);
     void setProtocol(int nProtocol);
     void setProtocol(int nProtocol, int nPulseLength);
+    volatile static int receivingProtocol;
 
   private:
     char* getCodeWordA(const char* sGroup, const char* sDevice, bool bStatus);
@@ -158,6 +162,9 @@ class RCSwitch {
     #if not defined( RCSwitchDisableReceiving )
     static void handleInterrupt();
     static bool receiveProtocol(const int p, unsigned int changeCount);
+    static unsigned int getProtocolHandshakePulseLength(unsigned int protocolIndex);
+    static void handleGenericReceive();
+    static void handleProtocolReceive();
     int nReceiverInterrupt;
     #endif
     int nTransmitterPin;
