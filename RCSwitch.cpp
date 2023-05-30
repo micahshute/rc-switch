@@ -110,6 +110,7 @@ const unsigned int VAR_ISR_ATTR RCSwitch::nSeparationLimit = 3800;
 // according to discussion on issue #14 it might be more suitable to set the separation
 // limit to the same time as the 'low' part of the sync signal for the current protocol.
 unsigned int RCSwitch::timings[RCSWITCH_MAX_CHANGES];
+unsigned long RCSwitch::longSignal[3];
 #endif
 
 RCSwitch::RCSwitch() {
@@ -581,6 +582,9 @@ bool RCSwitch::available() {
 
 void RCSwitch::resetAvailable() {
   RCSwitch::nReceivedValue = 0;
+  RCSwitch::longSignal[0] = 0;
+  RCSwitch::longSignal[1] = 0;
+  RCSwitch::longSignal[2] = 0;
 }
 
 unsigned long RCSwitch::getReceivedValue() {
@@ -601,6 +605,10 @@ unsigned int RCSwitch::getReceivedProtocol() {
 
 unsigned int* RCSwitch::getReceivedRawdata() {
   return RCSwitch::timings;
+}
+
+unsigned long* RCSwitch::getReceivedLongSignal() {
+  return RCSwitch::longSignal;
 }
 
 /* helper function for the receiveProtocol method */
@@ -633,6 +641,9 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
 #endif
 
     unsigned long code = 0;
+    RCSwitch::longSignal[0] = 0;
+    RCSwitch::longSignal[1] = 0;
+    RCSwitch::longSignal[2] = 0;
     //Assuming the longer pulse length is the pulse captured in timings[0]
     // const unsigned int syncLengthInPulses =  ((pro.syncFactor.low) > (pro.syncFactor.high)) ? (pro.syncFactor.low) : (pro.syncFactor.high);
     // const unsigned int delay = RCSwitch::timings[0] / syncLengthInPulses;
@@ -657,8 +668,10 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
      * The 2nd saved duration starts the data
      */
     const unsigned int firstDataTiming = (pro.invertedSignal) ? (2) : (1);
+    uint8_t bitCount = 0;
 
     for (unsigned int i = firstDataTiming; i < changeCount - 1; i += 2) {
+        bitCount++;
         code <<= 1;
         if (diff(RCSwitch::timings[i], delay * pro.zero.high) < delayTolerance &&
             diff(RCSwitch::timings[i + 1], delay * pro.zero.low) < delayTolerance) {
@@ -689,6 +702,19 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
 
             return false;
         }
+        if(bitCount % 32 == 0){
+          uint8_t index = (uint8_t)((bitCount / 32) - 1);
+          Serial.print("CHANGE: ");
+          Serial.print(i);
+          Serial.print(", BIT: ");
+          Serial.print(bitCount);
+          Serial.print(", CODE: ");
+          Serial.print(code);
+          Serial.print(", INDEX: ");
+          Serial.println(index);
+          RCSwitch::longSignal[index] = code;
+          code = 0;
+        }
     }
 
     if (changeCount > 7) {    // ignore very short transmissions: no device sends them, so this must be noise
@@ -696,6 +722,8 @@ bool RECEIVE_ATTR RCSwitch::receiveProtocol(const int p, unsigned int changeCoun
         RCSwitch::nReceivedBitlength = (changeCount - 1) / 2;
         RCSwitch::nReceivedDelay = delay;
         RCSwitch::nReceivedProtocol = p;
+        uint8_t index = (uint8_t)(bitCount / 32);
+        RCSwitch::longSignal[index] = code;
         return true;
     }
 
@@ -764,6 +792,7 @@ void RECEIVE_ATTR RCSwitch::handleProtocolReceive(){
   static unsigned int repeatCount = 0;
   const long time = micros();
   const unsigned int duration = time - lastTime;
+  // Serial.println(duration);
   unsigned int toleranceFactor = 25;
   unsigned int handshakeTolerance = protocolHandshakeLength * ((double)toleranceFactor / 100);
 
@@ -857,6 +886,7 @@ void RECEIVE_ATTR RCSwitch::handleProtocolReceive(){
 }
 
 void RECEIVE_ATTR RCSwitch::handleInterrupt() {
+  // Serial.println("fuck me in the fucking asshole fuck");
   if(RCSwitch::receivingProtocol == -1){
     handleGenericReceive();
   }else{
